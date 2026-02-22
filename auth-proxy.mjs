@@ -63,12 +63,18 @@ app.all("*", async (req, res) => {
   }
 
   try {
+    // Forward MCP-relevant headers to the backend
+    const proxyHeaders = {
+      "content-type": contentType,
+      "accept": req.headers.accept || "*/*",
+    };
+    if (req.headers["mcp-session-id"]) {
+      proxyHeaders["mcp-session-id"] = req.headers["mcp-session-id"];
+    }
+
     const upstream = await fetch(`http://127.0.0.1:${BACKEND_PORT}${req.originalUrl}`, {
       method: req.method,
-      headers: {
-        "content-type": contentType,
-        "accept": req.headers.accept || "*/*",
-      },
+      headers: proxyHeaders,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
     });
 
