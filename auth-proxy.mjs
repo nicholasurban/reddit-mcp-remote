@@ -1,4 +1,5 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
 const BACKEND_PORT = process.env.BACKEND_PORT || "3001";
@@ -9,13 +10,28 @@ if (!AUTH_TOKEN) {
   process.exit(1);
 }
 
+function tokensMatch(provided) {
+  if (typeof provided !== "string") return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(AUTH_TOKEN);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 const app = express();
 
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/health", async (_req, res) => {
+  try {
+    const check = await fetch(`http://127.0.0.1:${BACKEND_PORT}/mcp`, { method: "HEAD" });
+    res.json({ status: check.ok || check.status === 405 ? "ok" : "degraded" });
+  } catch {
+    res.status(503).json({ status: "backend_down" });
+  }
+});
 
 app.all("*", async (req, res) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (token !== AUTH_TOKEN) {
+  if (!tokensMatch(token)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -25,7 +41,7 @@ app.all("*", async (req, res) => {
   const body = Buffer.concat(chunks);
 
   try {
-    const upstream = await fetch(`http://127.0.0.1:${BACKEND_PORT}${req.path}`, {
+    const upstream = await fetch(`http://127.0.0.1:${BACKEND_PORT}${req.originalUrl}`, {
       method: req.method,
       headers: {
         "content-type": req.headers["content-type"] || "application/json",
@@ -40,11 +56,26 @@ app.all("*", async (req, res) => {
         res.setHeader(key, value);
       }
     }
-    const responseBody = await upstream.arrayBuffer();
-    res.send(Buffer.from(responseBody));
+
+    // Stream response body instead of buffering (critical for SSE/httpStream)
+    if (upstream.body) {
+      const reader = upstream.body.getReader();
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { res.end(); return; }
+          res.write(value);
+        }
+      };
+      await pump();
+    } else {
+      res.end();
+    }
   } catch (err) {
     console.error("Proxy error:", err.message);
-    res.status(502).json({ error: "Backend unavailable" });
+    if (!res.headersSent) {
+      res.status(502).json({ error: "Backend unavailable" });
+    }
   }
 });
 
