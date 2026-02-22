@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Router } from "express";
 import { setupOAuth } from "./oauth.mjs";
 
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
@@ -25,13 +25,16 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// OAuth routes MUST be registered BEFORE the catch-all
-const { validateToken } = setupOAuth(app, {
+// Mount OAuth routes on a sub-router so they're processed as middleware
+// before the catch-all app.all("*") proxy handler
+const oauthRouter = Router();
+const { validateToken } = setupOAuth(oauthRouter, {
   clientId: oauthClientId,
   clientSecret: oauthClientSecret,
   publicUrl,
   staticToken: AUTH_TOKEN,
 });
+app.use(oauthRouter);
 
 app.get("/health", async (_req, res) => {
   try {
