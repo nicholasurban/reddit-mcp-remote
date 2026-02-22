@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 TRANSPORT_TYPE=httpStream PORT=3001 REDDIT_SAFE_MODE=standard \
