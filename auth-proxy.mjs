@@ -1,5 +1,5 @@
 import express from "express";
-import { timingSafeEqual } from "node:crypto";
+import { setupOAuth } from "./oauth.mjs";
 
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN;
 const BACKEND_PORT = process.env.BACKEND_PORT || "3001";
@@ -10,15 +10,28 @@ if (!AUTH_TOKEN) {
   process.exit(1);
 }
 
-function tokensMatch(provided) {
-  if (typeof provided !== "string") return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(AUTH_TOKEN);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+const oauthClientId = process.env.MCP_OAUTH_CLIENT_ID;
+const oauthClientSecret = process.env.MCP_OAUTH_CLIENT_SECRET;
+const publicUrl = process.env.PUBLIC_URL;
+
+if (!oauthClientId || !oauthClientSecret || !publicUrl) {
+  console.error("ERROR: MCP_OAUTH_CLIENT_ID, MCP_OAUTH_CLIENT_SECRET, and PUBLIC_URL are required");
+  process.exit(1);
 }
 
 const app = express();
+
+// Body-parsing middleware (needed for /token POST and to re-serialize for proxy)
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// OAuth routes MUST be registered BEFORE the catch-all
+const { validateToken } = setupOAuth(app, {
+  clientId: oauthClientId,
+  clientSecret: oauthClientSecret,
+  publicUrl,
+  staticToken: AUTH_TOKEN,
+});
 
 app.get("/health", async (_req, res) => {
   try {
@@ -30,21 +43,27 @@ app.get("/health", async (_req, res) => {
 });
 
 app.all("*", async (req, res) => {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!tokensMatch(token)) {
+  if (!validateToken(req)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const body = Buffer.concat(chunks);
+  // Re-serialize body since Express middleware already consumed the stream
+  const contentType = req.headers["content-type"] || "application/json";
+  let body;
+  if (!["GET", "HEAD"].includes(req.method)) {
+    if (contentType.includes("application/json") && req.body) {
+      body = JSON.stringify(req.body);
+    } else if (contentType.includes("urlencoded") && req.body) {
+      body = new URLSearchParams(req.body).toString();
+    }
+  }
 
   try {
     const upstream = await fetch(`http://127.0.0.1:${BACKEND_PORT}${req.originalUrl}`, {
       method: req.method,
       headers: {
-        "content-type": req.headers["content-type"] || "application/json",
+        "content-type": contentType,
         "accept": req.headers.accept || "*/*",
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
