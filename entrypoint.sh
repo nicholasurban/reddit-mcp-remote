@@ -2,7 +2,7 @@
 set -e
 
 TRANSPORT_TYPE=httpStream PORT=3001 REDDIT_SAFE_MODE=standard \
-  node node_modules/reddit-mcp-server/dist/bin.js &
+  node --import ./reddit-proxy-shim.mjs node_modules/reddit-mcp-server/dist/bin.js &
 BACKEND_PID=$!
 
 # Wait for backend to be ready
