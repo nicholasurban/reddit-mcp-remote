@@ -3,7 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
-COPY auth-proxy.mjs oauth.mjs reddit-proxy-shim.mjs entrypoint.sh ./
+COPY auth-proxy.mjs oauth.mjs reddit-proxy-shim.cjs entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 ENV PORT=3000 BACKEND_PORT=3001
 EXPOSE 3000
