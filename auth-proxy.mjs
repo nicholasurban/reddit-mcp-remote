@@ -39,7 +39,8 @@ app.use(oauthRouter);
 app.get("/health", async (_req, res) => {
   try {
     const check = await fetch(`http://127.0.0.1:${BACKEND_PORT}/mcp`, { method: "HEAD" });
-    res.json({ status: check.ok || check.status === 405 ? "ok" : "degraded" });
+    // Backend returns 405/406 for non-POST — any response means it's alive
+    res.json({ status: check.status < 500 ? "ok" : "degraded" });
   } catch {
     res.status(503).json({ status: "backend_down" });
   }
